@@ -17,12 +17,12 @@ export default function Home() {
     // Initialize Web Speech API
     if (typeof window !== 'undefined' && 'webkitSpeechRecognition' in window) {
       const SpeechRecognition = (window as any).webkitSpeechRecognition
-      recognitionRef.current = new SpeechRecognition()
-      recognitionRef.current.continuous = true
-      recognitionRef.current.interimResults = true
-      recognitionRef.current.lang = 'en-US'
+      const recognition = new SpeechRecognition()
+      recognition.continuous = true
+      recognition.interimResults = true
+      recognition.lang = 'en-US'
 
-      recognitionRef.current.onresult = (event: SpeechRecognitionEvent) => {
+      recognition.onresult = (event: SpeechRecognitionEvent) => {
         let interimTranscript = ''
         let finalTranscript = ''
 
@@ -38,9 +38,11 @@ export default function Home() {
         setTranscript(finalTranscript || interimTranscript)
       }
 
-      recognitionRef.current.onerror = (event: any) => {
+      recognition.onerror = (event: any) => {
         console.error('Speech recognition error:', event.error)
       }
+
+      recognitionRef.current = recognition
     }
   }, [])
 
