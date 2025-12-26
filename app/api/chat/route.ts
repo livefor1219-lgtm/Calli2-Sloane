@@ -47,10 +47,22 @@ export async function POST(request: NextRequest) {
     const text = response.text()
 
     return NextResponse.json({ response: text.trim() })
-  } catch (error) {
+  } catch (error: any) {
     console.error('Gemini API error:', error)
+    
+    // 더 자세한 에러 메시지 반환
+    let errorMessage = 'Failed to get response from AI'
+    if (error.message) {
+      errorMessage = error.message
+    } else if (error.error?.message) {
+      errorMessage = error.error.message
+    }
+    
     return NextResponse.json(
-      { error: 'Failed to get response from AI' },
+      { 
+        error: errorMessage,
+        details: error.toString()
+      },
       { status: 500 }
     )
   }

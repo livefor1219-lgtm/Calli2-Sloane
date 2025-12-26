@@ -230,10 +230,17 @@ export default function Home() {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+        const errorMsg = errorData.error || `HTTP error! status: ${response.status}`;
+        console.error('API Error:', errorData);
+        throw new Error(errorMsg);
       }
 
       const data = await response.json();
+      
+      // API route에서 에러를 반환한 경우
+      if (data.error) {
+        throw new Error(data.error);
+      }
       
       if (!data.response) {
         throw new Error('No response from API');
@@ -263,6 +270,11 @@ export default function Home() {
         errorMessage = "Network error. Check your internet connection.";
       } else if (error.message?.includes('HTTP error')) {
         errorMessage = "Server error. Please try again.";
+      } else if (error.message?.includes('Failed to get response')) {
+        errorMessage = "AI 서비스에 연결할 수 없습니다. API 키를 확인해주세요.";
+      } else {
+        // 실제 에러 메시지 표시
+        errorMessage = error.message || "I'm having technical difficulties. Try again.";
       }
 
       const retryFn = () => {
@@ -304,10 +316,17 @@ export default function Home() {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+        const errorMsg = errorData.error || `HTTP error! status: ${response.status}`;
+        console.error('Whisper API Error:', errorData);
+        throw new Error(errorMsg);
       }
 
       const data = await response.json();
+      
+      // API route에서 에러를 반환한 경우
+      if (data.error) {
+        throw new Error(data.error);
+      }
       
       if (!data.response) {
         throw new Error('No response from API');
