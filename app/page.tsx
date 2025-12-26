@@ -1,330 +1,220 @@
-'use client'
+"use client";
 
-import { useState, useRef, useEffect } from 'react'
-import { Mic, MicOff } from 'lucide-react'
-import WhisperModal from '@/components/WhisperModal'
+import React, { useState, useEffect, useRef } from 'react';
+import { Mic, MicOff, MessageSquare, Volume2 } from 'lucide-react';
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
-interface Message {
-  role: 'user' | 'assistant'
-  text: string
-}
+// --- 설정 ---
+// .env.local에 NEXT_PUBLIC_GEMINI_API_KEY가 있어야 합니다.
+const GEN_AI = new GoogleGenerativeAI(process.env.NEXT_PUBLIC_GEMINI_API_KEY || "");
 
 export default function Home() {
-  const [messages, setMessages] = useState<Message[]>([])
-  const [isRecording, setIsRecording] = useState(false)
-  const [transcript, setTranscript] = useState('')
-  const [isWhisperOpen, setIsWhisperOpen] = useState(false)
-  const [isTimeFrozen, setIsTimeFrozen] = useState(false)
-  const [currentLevel, setCurrentLevel] = useState(1)
-  const [isThinking, setIsThinking] = useState(false)
-  const recognitionRef = useRef<SpeechRecognition | null>(null)
+  // 상태 관리
+  const [level, setLevel] = useState(1);
+  const [isRecording, setIsRecording] = useState(false);
+  const [isWhisperOpen, setIsWhisperOpen] = useState(false);
+  const [messages, setMessages] = useState<{ role: 'user' | 'assistant'; text: string }[]>([]);
+  const [whisperInput, setWhisperInput] = useState("");
+  const [whisperResult, setWhisperResult] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  // Text-to-Speech function
+  // 음성 인식 (Web Speech API)
+  const recognitionRef = useRef<any>(null);
+
+  useEffect(() => {
+    // 브라우저 환경에서만 실행
+    if (typeof window !== 'undefined' && (window as any).webkitSpeechRecognition) {
+      const SpeechRecognition = (window as any).webkitSpeechRecognition;
+      recognitionRef.current = new SpeechRecognition();
+      recognitionRef.current.continuous = false;
+      recognitionRef.current.interimResults = false;
+      recognitionRef.current.onresult = (event: any) => {
+        const transcript = event.results[0][0].transcript;
+        if (isWhisperOpen) {
+          // 속삭임 모드면 텍스트 입력창에 넣기
+          setWhisperInput(transcript);
+          handleWhisperSubmit(transcript);
+        } else {
+          // 일반 대화면 바로 전송
+          handleSendMessage(transcript);
+        }
+      };
+      recognitionRef.current.onend = () => setIsRecording(false);
+    }
+  }, [isWhisperOpen]);
+
+  // TTS (텍스트 읽어주기)
   const speak = (text: string) => {
-    if (typeof window === 'undefined' || !window.speechSynthesis) return
-
-    // Cancel any ongoing speech
-    window.speechSynthesis.cancel()
-
-    const utterance = new SpeechSynthesisUtterance(text)
-    utterance.rate = 0.9
-    utterance.pitch = 1.1
-    utterance.volume = 1
-
-    // Try to find a female English voice
-    const voices = window.speechSynthesis.getVoices()
-    const femaleVoice = voices.find(
-      (voice) =>
-        (voice.name.includes('Google US English') ||
-          voice.name.includes('Samantha') ||
-          voice.name.includes('Karen') ||
-          voice.name.includes('Victoria') ||
-          voice.name.includes('Female')) &&
-        voice.lang.startsWith('en')
-    )
-
-    if (femaleVoice) {
-      utterance.voice = femaleVoice
+    if (typeof window !== 'undefined') {
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = 'en-US';
+      utterance.rate = 1.2; // Sloane은 말이 빠름
+      // 목소리 선택 (가능하다면)
+      const voices = window.speechSynthesis.getVoices();
+      const femaleVoice = voices.find(v => v.name.includes('Google US English') || v.name.includes('Samantha'));
+      if (femaleVoice) utterance.voice = femaleVoice;
+      window.speechSynthesis.speak(utterance);
     }
+  };
 
-    window.speechSynthesis.speak(utterance)
-  }
+  // 녹음 시작
+  const startRecording = (forWhisper = false) => {
+    if (!recognitionRef.current) return alert("이 브라우저는 음성 인식을 지원하지 않습니다.");
+    
+    recognitionRef.current.lang = forWhisper ? 'ko-KR' : 'en-US';
+    recognitionRef.current.start();
+    setIsRecording(true);
+  };
 
-  // Load voices when available
-  useEffect(() => {
-    if (typeof window !== 'undefined' && window.speechSynthesis) {
-      const loadVoices = () => {
-        window.speechSynthesis.getVoices()
-      }
-      loadVoices()
-      if (window.speechSynthesis.onvoiceschanged !== undefined) {
-        window.speechSynthesis.onvoiceschanged = loadVoices
-      }
-    }
-  }, [])
-
-  // Initialize Web Speech API for English (main mic)
-  useEffect(() => {
-    if (typeof window !== 'undefined' && 'webkitSpeechRecognition' in window) {
-      const SpeechRecognition = (window as any).webkitSpeechRecognition
-      const recognition = new SpeechRecognition()
-      recognition.continuous = true
-      recognition.interimResults = true
-      recognition.lang = 'en-US'
-
-      recognition.onresult = (event: SpeechRecognitionEvent) => {
-        // Only process if whisper modal is NOT open
-        if (isWhisperOpen) return
-
-        let interimTranscript = ''
-        let finalTranscript = ''
-
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          const transcript = event.results[i][0].transcript
-          if (event.results[i].isFinal) {
-            finalTranscript += transcript + ' '
-          } else {
-            interimTranscript += transcript
-          }
-        }
-
-        setTranscript(finalTranscript || interimTranscript)
-      }
-
-      recognition.onend = () => {
-        // Auto-send when recognition ends (silence detected)
-        if (transcript.trim() && !isWhisperOpen) {
-          handleAutoSend()
-        }
-      }
-
-      recognition.onerror = (event: any) => {
-        console.error('Speech recognition error:', event.error)
-        setIsRecording(false)
-      }
-
-      recognitionRef.current = recognition
-    }
-  }, [isWhisperOpen, transcript])
-
-  const startRecording = () => {
-    if (recognitionRef.current && !isWhisperOpen) {
-      recognitionRef.current.lang = 'en-US'
-      recognitionRef.current.start()
-      setIsRecording(true)
-      setTranscript('')
-    }
-  }
-
-  const stopRecording = async () => {
-    if (recognitionRef.current) {
-      recognitionRef.current.stop()
-      setIsRecording(false)
-    }
-
-    // Auto-send transcript
-    if (transcript.trim()) {
-      await handleAutoSend()
-    }
-  }
-
-  const handleAutoSend = async () => {
-    const userText = transcript.trim()
-    if (!userText) return
-
-    // Add user message to history
-    setMessages((prev) => [...prev, { role: 'user', text: userText }])
-    setTranscript('')
-    setIsThinking(true)
+  // 메시지 전송 (Gemini)
+  const handleSendMessage = async (text: string) => {
+    // 1. 사용자 메시지 추가
+    setMessages(prev => [...prev, { role: 'user', text }]);
+    setLoading(true);
 
     try {
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: userText, level: currentLevel }),
-      })
+      const model = GEN_AI.getGenerativeModel({ model: "gemini-1.5-flash" });
+      const prompt = `
+        System: You are Sloane, a brutal Silicon Valley Venture Partner. 
+        Current Level: ${level}/4.
+        User said: "${text}"
+        Task: Reply in 1-2 sentences. Be critical, cynical, and fast. NO small talk.
+      `;
+      
+      const result = await model.generateContent(prompt);
+      const response = result.response.text();
 
-      const data = await response.json()
-      if (data.response) {
-        // Add assistant message to history
-        setMessages((prev) => [...prev, { role: 'assistant', text: data.response }])
-        
-        // Speak the response
-        speak(data.response)
-      }
+      // 2. 슬론 메시지 추가
+      setMessages(prev => [...prev, { role: 'assistant', text: response }]);
+      
+      // 3. 말하기
+      speak(response);
+
     } catch (error) {
-      console.error('Error sending to Sloane:', error)
-      const errorMessage = "I'm having technical difficulties. Try again."
-      setMessages((prev) => [...prev, { role: 'assistant', text: errorMessage }])
-      speak(errorMessage)
+      console.error(error);
+      setMessages(prev => [...prev, { role: 'assistant', text: "Error: API connection failed. Check your key." }]);
     } finally {
-      setIsThinking(false)
+      setLoading(false);
     }
-  }
+  };
 
-  const handleWhisperTranslate = async (korean: string): Promise<string> => {
+  // 속삭임 처리 (Gemini)
+  const handleWhisperSubmit = async (koreanText: string) => {
+    setLoading(true);
     try {
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: korean, isWhisper: true, level: currentLevel }),
-      })
-
-      const data = await response.json()
-      return data.response || 'Translation failed'
+      const model = GEN_AI.getGenerativeModel({ model: "gemini-1.5-flash" });
+      const prompt = `
+        System: Translate this Korean complaint/thought into Sophisticated Silicon Valley Business English.
+        Input: "${koreanText}"
+        Output: Just the English phrase. Nothing else.
+      `;
+      const result = await model.generateContent(prompt);
+      const response = result.response.text();
+      setWhisperResult(response);
     } catch (error) {
-      console.error('Translation error:', error)
-      return 'Translation failed. Try again.'
+      console.error(error);
+    } finally {
+      setLoading(false);
     }
-  }
-
-  const handleWhisperOpen = () => {
-    // Stop English recording if active
-    if (recognitionRef.current && isRecording) {
-      recognitionRef.current.stop()
-      setIsRecording(false)
-    }
-    setIsTimeFrozen(true)
-    setIsWhisperOpen(true)
-  }
-
-  const handleWhisperClose = () => {
-    setIsWhisperOpen(false)
-    setTimeout(() => setIsTimeFrozen(false), 300)
-  }
+  };
 
   return (
-    <div 
-      className="min-h-screen relative overflow-hidden transition-all duration-500"
-      style={{
-        filter: isTimeFrozen ? 'grayscale(100%) blur(10px)' : 'none',
-      }}
-    >
-      {/* Animated Background Blob */}
-      <div className="fixed inset-0 -z-10">
-        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-neon-orange/10 rounded-full blur-3xl animate-blob" />
-        <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl animate-blob" style={{ animationDelay: '2s' }} />
+    <div className="min-h-screen bg-[#0f172a] text-white overflow-hidden relative font-sans">
+      {/* 배경 장식 */}
+      <div className="absolute top-[-10%] left-[-10%] w-[500px] h-[500px] bg-blue-500/20 rounded-full blur-[100px]" />
+      
+      {/* 상단 레벨바 */}
+      <div className="p-6 relative z-10">
+        <div className="flex justify-between mb-2 text-sm text-gray-400">
+          <span>Level {level} / 4</span>
+          <span>Practice Mode</span>
+        </div>
+        <div className="w-full h-2 bg-gray-800 rounded-full">
+          <div 
+            className="h-full bg-[#ff5722] rounded-full transition-all duration-500"
+            style={{ width: `${level * 25}%` }}
+          />
+        </div>
       </div>
 
-      {/* Main Content */}
-      <div className={`container mx-auto px-4 py-8 relative z-10 ${isTimeFrozen ? 'pointer-events-none' : ''}`}>
-        {/* Progress Bar */}
-        <div className="mb-8">
-          <div className="flex justify-between items-center mb-2">
-            <span className="text-sm text-white/60">Level {currentLevel} / 4</span>
-            <span className="text-sm text-white/60">Practice Mode</span>
-          </div>
-          <div className="h-2 bg-white/10 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-neon-orange transition-all duration-500"
-              style={{ width: `${(currentLevel / 4) * 100}%` }}
-            />
-          </div>
-        </div>
-
-        {/* Main Interface */}
-        <div className="max-w-4xl mx-auto space-y-8">
-          {/* Microphone Button */}
-          <div className="flex justify-center">
-            <button
-              onClick={isRecording ? stopRecording : startRecording}
-              disabled={isWhisperOpen}
-              className={`relative w-32 h-32 rounded-full ${
-                isRecording
-                  ? 'bg-neon-orange animate-pulse-slow'
-                  : 'bg-neon-orange/80 hover:bg-neon-orange'
-              } transition-all duration-300 shadow-2xl shadow-neon-orange/50 flex items-center justify-center group disabled:opacity-50 disabled:cursor-not-allowed`}
-            >
-              {isRecording ? (
-                <MicOff size={48} className="text-white" />
-              ) : (
-                <Mic size={48} className="text-white" />
-              )}
-              <div className="absolute inset-0 rounded-full bg-neon-orange/20 animate-ping" />
-            </button>
-          </div>
-
-          {/* Current Transcript (while recording) */}
-          {transcript && isRecording && (
-            <div className="flex justify-end">
-              <div className="bg-white/10 px-4 py-2 rounded-lg max-w-md">
-                <p className="text-white/60 text-sm">Recording...</p>
-                <p className="text-white/80 text-lg leading-relaxed">{transcript}</p>
-              </div>
+      {/* 메인 대화 영역 (스크롤) */}
+      <div className="h-[60vh] overflow-y-auto px-6 space-y-4 relative z-10 pb-20">
+        {messages.map((msg, idx) => (
+          <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+            <div className={`max-w-[80%] p-4 rounded-2xl ${
+              msg.role === 'user' 
+                ? 'bg-gray-800/50 text-right' 
+                : 'bg-white/10 backdrop-blur-md border border-white/20 text-left shadow-[0_0_15px_rgba(255,87,34,0.3)]'
+            }`}>
+              {msg.role === 'assistant' && <div className="text-[#ff5722] text-xs font-bold mb-1">Sloane</div>}
+              {msg.text}
             </div>
-          )}
-
-          {/* Thinking Indicator */}
-          {isThinking && (
-            <div className="flex justify-start">
-              <div className="glass-strong p-4 border-2 border-neon-orange/50">
-                <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 bg-neon-orange rounded-full animate-pulse" />
-                  <span className="text-neon-orange font-bold text-sm">SLOANE</span>
-                  <span className="text-white/60 text-sm ml-2">is thinking...</span>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Chat History */}
-          <div className="space-y-4 min-h-[400px]">
-            {messages.length === 0 && !transcript && !isThinking && (
-              <div className="glass p-12 text-center">
-                <p className="text-white/40 text-lg">
-                  Click the microphone to start your pitch
-                </p>
-              </div>
-            )}
-
-            {messages.map((message, index) => (
-              <div
-                key={index}
-                className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
-              >
-                {message.role === 'user' ? (
-                  // User Message - Right Aligned, Grey
-                  <div className="max-w-md">
-                    <p className="text-white/60 text-sm mb-1 text-right">You</p>
-                    <div className="bg-white/5 px-4 py-3 rounded-lg">
-                      <p className="text-white/80 text-base leading-relaxed">{message.text}</p>
-                    </div>
-                  </div>
-                ) : (
-                  // Sloane Message - Left Aligned, Glassmorphism with Neon Orange Border
-                  <div className="max-w-md">
-                    <div className="flex items-center gap-2 mb-1">
-                      <div className="w-2 h-2 bg-neon-orange rounded-full animate-pulse" />
-                      <span className="text-neon-orange font-bold text-sm">SLOANE</span>
-                    </div>
-                    <div className="glass-strong p-4 border-2 border-neon-orange/50 shadow-lg shadow-neon-orange/20">
-                      <p className="text-white text-base leading-relaxed">{message.text}</p>
-                    </div>
-                  </div>
-                )}
-              </div>
-            ))}
           </div>
-        </div>
+        ))}
+        {loading && <div className="text-center text-gray-500 animate-pulse">Sloane is thinking...</div>}
+      </div>
 
-        {/* Whisper Button */}
-        <button
-          onClick={handleWhisperOpen}
-          disabled={isRecording}
-          className="fixed bottom-8 right-8 glass px-6 py-3 rounded-full flex items-center gap-2 hover:bg-white/20 transition-all group disabled:opacity-50 disabled:cursor-not-allowed"
+      {/* 하단 마이크 버튼 */}
+      <div className="fixed bottom-10 left-0 right-0 flex justify-center z-20">
+        <button 
+          onClick={() => startRecording(false)}
+          className={`w-20 h-20 rounded-full flex items-center justify-center transition-all shadow-[0_0_30px_#ff5722] ${
+            isRecording ? 'bg-red-600 scale-110' : 'bg-[#ff5722] hover:scale-105'
+          }`}
         >
-          <span className="text-2xl">🤫</span>
-          <span className="text-white font-semibold">Whisper</span>
+          {isRecording ? <MicOff className="w-8 h-8" /> : <Mic className="w-8 h-8" />}
         </button>
       </div>
 
-      {/* Whisper Modal */}
-      <WhisperModal
-        isOpen={isWhisperOpen}
-        onClose={handleWhisperClose}
-        onTranslate={handleWhisperTranslate}
-        recognitionRef={recognitionRef}
-      />
+      {/* Whisper 버튼 (우측 하단) */}
+      <button 
+        onClick={() => setIsWhisperOpen(true)}
+        className="fixed bottom-10 right-6 z-20 flex items-center gap-2 bg-gray-800/80 px-4 py-2 rounded-full border border-gray-600 hover:bg-gray-700 transition-all"
+      >
+        <span className="text-xl">🤫</span>
+        <span className="text-sm font-bold">Whisper</span>
+      </button>
+
+      {/* === WHISPER MODAL (Time Freeze) === */}
+      {isWhisperOpen && (
+        <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center">
+          {/* 배경 블러 처리 */}
+          <div className="absolute inset-0 bg-black/90 backdrop-blur-xl" onClick={() => setIsWhisperOpen(false)} />
+          
+          <div className="relative z-50 w-full max-w-md px-6 text-center">
+            <h2 className="text-[#ff5722] text-xl font-bold mb-6 tracking-widest animate-pulse">
+              TIME FROZEN
+            </h2>
+            
+            <p className="text-gray-400 mb-4">Tell me in Korean...</p>
+            
+            <div className="text-3xl font-bold text-white mb-8 min-h-[60px]">
+              {whisperInput || "터치해서 말하세요..."}
+            </div>
+
+            {whisperResult && (
+              <div className="bg-white/10 p-6 rounded-xl border border-[#ff5722] mb-8">
+                <p className="text-gray-400 text-sm mb-2">Sloane's Suggestion:</p>
+                <p className="text-2xl font-bold text-[#ff5722]">{whisperResult}</p>
+              </div>
+            )}
+
+            <button 
+              onClick={() => startRecording(true)}
+              className="w-16 h-16 rounded-full bg-white/20 flex items-center justify-center mx-auto hover:bg-white/30 border border-white/50"
+            >
+              <Mic className="w-6 h-6 text-white" />
+            </button>
+
+            <button 
+              onClick={() => setIsWhisperOpen(false)}
+              className="mt-8 text-gray-500 underline text-sm"
+            >
+              Close / Resume Time
+            </button>
+          </div>
+        </div>
+      )}
     </div>
-  )
+  );
 }
