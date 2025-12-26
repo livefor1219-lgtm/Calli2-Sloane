@@ -2,10 +2,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Mic, MicOff } from 'lucide-react';
-import { GoogleGenerativeAI } from "@google/generative-ai";
-
-// --- 설정 ---
-const GEN_AI = new GoogleGenerativeAI(process.env.NEXT_PUBLIC_GEMINI_API_KEY || "AIzaSyAV85Fv56MDnAgFZMhg2Bzcf3u2t7lo53s");
 
 export default function Home() {
   const [level, setLevel] = useState(1);
@@ -17,36 +13,31 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
 
   const recognitionRef = useRef<any>(null);
-  const silenceTimer = useRef<any>(null); // 침묵 감지용 타이머
+  const silenceTimer = useRef<any>(null);
 
   useEffect(() => {
     if (typeof window !== 'undefined' && (window as any).webkitSpeechRecognition) {
       const SpeechRecognition = (window as any).webkitSpeechRecognition;
       recognitionRef.current = new SpeechRecognition();
-      recognitionRef.current.continuous = true; // 끊기지 않게 설정
+      recognitionRef.current.continuous = true;
       recognitionRef.current.interimResults = true;
 
       recognitionRef.current.onresult = (event: any) => {
-        // 말하는 중에는 타이머 리셋
         if (silenceTimer.current) clearTimeout(silenceTimer.current);
 
         const transcript = Array.from(event.results)
           .map((result: any) => result[0].transcript)
           .join('');
 
-        // 속삭임 모드일 때
         if (isWhisperOpen) {
            setWhisperInput(transcript);
-           // 속삭임은 침묵 감지 후 자동 번역
            silenceTimer.current = setTimeout(() => {
-             handleWhisperSubmit(transcript);
-             stopRecording();
+             if (transcript.trim()) {
+               handleWhisperSubmit(transcript);
+               stopRecording();
+             }
            }, 2000); 
-        } 
-        // 일반 대화 모드일 때 (침묵 1.5초 감지)
-        else {
-           // 화면에 임시로 보여주는 로직이 필요하다면 추가 가능하지만, 
-           // 여기서는 심플하게 침묵 후 전송으로 갑니다.
+        } else {
            silenceTimer.current = setTimeout(() => {
              if (transcript.trim().length > 0) {
                 stopRecording();
@@ -60,7 +51,7 @@ export default function Home() {
 
   const speak = (text: string) => {
     if (typeof window !== 'undefined') {
-      window.speechSynthesis.cancel(); // 기존 음성 취소
+      window.speechSynthesis.cancel();
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = 'en-US';
       utterance.rate = 1.1; 
@@ -79,52 +70,56 @@ export default function Home() {
   };
 
   const stopRecording = () => {
-    if (recognitionRef.current) recognitionRef.current.stop();
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+      } catch (e) {}
+    }
     setIsRecording(false);
     if (silenceTimer.current) clearTimeout(silenceTimer.current);
   };
 
+  // 서버 API를 통한 메시지 전송 (안전한 연결)
   const handleSendMessage = async (text: string) => {
     setMessages(prev => [...prev, { role: 'user', text }]);
     setLoading(true);
 
     try {
-      // ★★★ 모델명 수정됨: gemini-pro ★★★
-      const model = GEN_AI.getGenerativeModel({ model: "gemini-pro" });
-      const prompt = `
-        System: You are Sloane, a brutal Silicon Valley Venture Partner. 
-        Current Level: ${level}/4.
-        User said: "${text}"
-        Task: Reply in 1-2 sentences. Be critical, cynical, and fast. NO small talk.
-      `;
-      
-      const result = await model.generateContent(prompt);
-      const response = result.response.text();
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text, level })
+      });
 
-      setMessages(prev => [...prev, { role: 'assistant', text: response }]);
-      speak(response);
-
-    } catch (error) {
+      const data = await response.json();
+      if (data.response) {
+        setMessages(prev => [...prev, { role: 'assistant', text: data.response }]);
+        speak(data.response);
+      } else {
+        throw new Error(data.details || 'Unknown error');
+      }
+    } catch (error: any) {
       console.error(error);
-      setMessages(prev => [...prev, { role: 'assistant', text: "API Error. Check console." }]);
+      setMessages(prev => [...prev, { role: 'assistant', text: "연결 에러가 발생했습니다. 다시 시도해주세요." }]);
     } finally {
       setLoading(false);
     }
   };
 
+  // 서버 API를 통한 번역 요청
   const handleWhisperSubmit = async (koreanText: string) => {
     setLoading(true);
     try {
-      // ★★★ 모델명 수정됨: gemini-pro ★★★
-      const model = GEN_AI.getGenerativeModel({ model: "gemini-pro" });
-      const prompt = `
-        System: Translate this Korean text into Sophisticated Silicon Valley Business English.
-        Input: "${koreanText}"
-        Output: Just the English phrase.
-      `;
-      const result = await model.generateContent(prompt);
-      const response = result.response.text();
-      setWhisperResult(response);
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: koreanText, isWhisper: true })
+      });
+
+      const data = await response.json();
+      if (data.response) {
+        setWhisperResult(data.response);
+      }
     } catch (error) {
       console.error(error);
     } finally {
@@ -151,10 +146,10 @@ export default function Home() {
       <div className="h-[60vh] overflow-y-auto px-6 space-y-4 relative z-10 pb-20">
         {messages.map((msg, idx) => (
           <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div className={`max-w-[80%] p-4 rounded-2xl ${
+            <div className={`max-w-[80%] p-4 rounded-2xl border ${
               msg.role === 'user' 
-                ? 'bg-gray-800/50 text-right border border-orange-500/30 shadow-[0_0_20px_rgba(249,115,22,0.4)]' 
-                : 'bg-white/10 backdrop-blur-md border border-orange-500/50 text-left shadow-[0_0_25px_rgba(249,115,22,0.5)]'
+                ? 'bg-gray-800/50 text-right border-orange-500/30 shadow-[0_0_15px_rgba(249,115,22,0.2)]' 
+                : 'bg-white/10 backdrop-blur-md border-orange-500/50 text-left shadow-[0_0_20px_rgba(249,115,22,0.4)]'
             }`}>
               {msg.role === 'assistant' && <div className="text-[#ff5722] text-xs font-bold mb-1">Sloane</div>}
               {msg.text}
@@ -162,10 +157,10 @@ export default function Home() {
           </div>
         ))}
         {loading && (
-           <div className="flex items-center gap-2 text-[#ff5722] animate-pulse">
+           <div className="flex items-center gap-2 p-4 animate-pulse">
              <div className="w-2 h-2 bg-[#ff5722] rounded-full animate-bounce" />
-             <div className="w-2 h-2 bg-[#ff5722] rounded-full animate-bounce" style={{ animationDelay: '200ms' }} />
-             <div className="w-2 h-2 bg-[#ff5722] rounded-full animate-bounce" style={{ animationDelay: '400ms' }} />
+             <div className="w-2 h-2 bg-[#ff5722] rounded-full animate-bounce delay-75" />
+             <div className="w-2 h-2 bg-[#ff5722] rounded-full animate-bounce delay-150" />
            </div>
         )}
       </div>
@@ -175,7 +170,7 @@ export default function Home() {
         <button 
           onClick={() => isRecording ? stopRecording() : startRecording(false)}
           className={`w-20 h-20 rounded-full flex items-center justify-center transition-all shadow-[0_0_30px_#ff5722] border-2 border-orange-500/60 active:scale-95 ${
-            isRecording ? 'bg-red-600 scale-110 animate-pulse' : 'bg-[#ff5722] hover:scale-105'
+            isRecording ? 'bg-red-600 scale-110' : 'bg-[#ff5722] hover:scale-105'
           }`}
         >
           {isRecording ? <MicOff className="w-8 h-8" /> : <Mic className="w-8 h-8" />}
