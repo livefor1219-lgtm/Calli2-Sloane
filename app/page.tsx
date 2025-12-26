@@ -17,9 +17,11 @@ export default function Home() {
   const [whisperInput, setWhisperInput] = useState("");
   const [whisperResult, setWhisperResult] = useState("");
   const [loading, setLoading] = useState(false);
+  const [currentTranscript, setCurrentTranscript] = useState("");
 
   // 음성 인식 (Web Speech API)
   const recognitionRef = useRef<any>(null);
+  const transcriptRef = useRef<string>('');
 
   useEffect(() => {
     // 브라우저 환경에서만 실행
@@ -27,19 +29,69 @@ export default function Home() {
       const SpeechRecognition = (window as any).webkitSpeechRecognition;
       recognitionRef.current = new SpeechRecognition();
       recognitionRef.current.continuous = false;
-      recognitionRef.current.interimResults = false;
+      recognitionRef.current.interimResults = true; // 실시간 텍스트 표시를 위해 true로 변경
+      
       recognitionRef.current.onresult = (event: any) => {
-        const transcript = event.results[0][0].transcript;
-        if (isWhisperOpen) {
-          // 속삭임 모드면 텍스트 입력창에 넣기
-          setWhisperInput(transcript);
-          handleWhisperSubmit(transcript);
-        } else {
-          // 일반 대화면 바로 전송
-          handleSendMessage(transcript);
+        let interimTranscript = '';
+        let finalTranscript = '';
+
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const transcript = event.results[i][0].transcript;
+          if (event.results[i].isFinal) {
+            finalTranscript += transcript + ' ';
+          } else {
+            interimTranscript += transcript;
+          }
+        }
+
+        const fullTranscript = finalTranscript || interimTranscript;
+        setCurrentTranscript(fullTranscript);
+        transcriptRef.current = fullTranscript;
+
+        // 최종 결과가 있으면 자동 전송
+        if (finalTranscript.trim()) {
+          if (isWhisperOpen) {
+            setWhisperInput(finalTranscript.trim());
+            handleWhisperSubmit(finalTranscript.trim());
+          } else {
+            handleSendMessage(finalTranscript.trim());
+          }
+          setCurrentTranscript(''); // 전송 후 초기화
+          transcriptRef.current = '';
         }
       };
-      recognitionRef.current.onend = () => setIsRecording(false);
+
+      recognitionRef.current.onend = () => {
+        setIsRecording(false);
+        // 음성 인식 종료 시 남은 텍스트가 있으면 자동 전송
+        const transcript = transcriptRef.current;
+        if (transcript.trim() && !isWhisperOpen) {
+          handleSendMessage(transcript.trim());
+          setCurrentTranscript('');
+          transcriptRef.current = '';
+        }
+      };
+
+      recognitionRef.current.onerror = (event: any) => {
+        console.error('Speech recognition error:', event.error);
+        setIsRecording(false);
+        setCurrentTranscript('');
+        
+        // 오류 처리 개선
+        let errorMessage = "음성 인식 오류가 발생했습니다.";
+        if (event.error === 'no-speech') {
+          errorMessage = "음성이 감지되지 않았습니다. 다시 시도해주세요.";
+        } else if (event.error === 'network') {
+          errorMessage = "네트워크 오류가 발생했습니다.";
+        } else if (event.error === 'not-allowed') {
+          errorMessage = "마이크 권한이 필요합니다.";
+        }
+        
+        setMessages(prev => [...prev, { 
+          role: 'assistant', 
+          text: errorMessage 
+        }]);
+      };
     }
   }, [isWhisperOpen]);
 
@@ -68,11 +120,18 @@ export default function Home() {
 
   // 메시지 전송 (Gemini)
   const handleSendMessage = async (text: string) => {
+    if (!text.trim()) return;
+
     // 1. 사용자 메시지 추가
-    setMessages(prev => [...prev, { role: 'user', text }]);
+    setMessages(prev => [...prev, { role: 'user', text: text.trim() }]);
     setLoading(true);
 
     try {
+      // API 키 확인
+      if (!process.env.NEXT_PUBLIC_GEMINI_API_KEY) {
+        throw new Error('API_KEY_MISSING');
+      }
+
       const model = GEN_AI.getGenerativeModel({ model: "gemini-1.5-flash" });
       const prompt = `
         System: You are Sloane, a brutal Silicon Valley Venture Partner. 
@@ -81,7 +140,16 @@ export default function Home() {
         Task: Reply in 1-2 sentences. Be critical, cynical, and fast. NO small talk.
       `;
       
-      const result = await model.generateContent(prompt);
+      // 타임아웃 설정 (10초)
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('TIMEOUT')), 10000)
+      );
+
+      const result = await Promise.race([
+        model.generateContent(prompt),
+        timeoutPromise
+      ]) as any;
+
       const response = result.response.text();
 
       // 2. 슬론 메시지 추가
@@ -90,9 +158,24 @@ export default function Home() {
       // 3. 말하기
       speak(response);
 
-    } catch (error) {
-      console.error(error);
-      setMessages(prev => [...prev, { role: 'assistant', text: "Error: API connection failed. Check your key." }]);
+    } catch (error: any) {
+      console.error('Error sending message:', error);
+      
+      // 오류 처리 개선
+      let errorMessage = "I'm having technical difficulties. Try again.";
+      
+      if (error.message === 'API_KEY_MISSING') {
+        errorMessage = "API key is missing. Please check your .env.local file.";
+      } else if (error.message === 'TIMEOUT') {
+        errorMessage = "Request timed out. The network might be slow.";
+      } else if (error.message?.includes('API key')) {
+        errorMessage = "Invalid API key. Check your configuration.";
+      } else if (error.message?.includes('network') || error.message?.includes('fetch')) {
+        errorMessage = "Network error. Check your internet connection.";
+      }
+      
+      setMessages(prev => [...prev, { role: 'assistant', text: errorMessage }]);
+      speak(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -100,19 +183,49 @@ export default function Home() {
 
   // 속삭임 처리 (Gemini)
   const handleWhisperSubmit = async (koreanText: string) => {
+    if (!koreanText.trim()) return;
+
     setLoading(true);
     try {
+      // API 키 확인
+      if (!process.env.NEXT_PUBLIC_GEMINI_API_KEY) {
+        throw new Error('API_KEY_MISSING');
+      }
+
       const model = GEN_AI.getGenerativeModel({ model: "gemini-1.5-flash" });
       const prompt = `
         System: Translate this Korean complaint/thought into Sophisticated Silicon Valley Business English.
         Input: "${koreanText}"
         Output: Just the English phrase. Nothing else.
       `;
-      const result = await model.generateContent(prompt);
+      
+      // 타임아웃 설정
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('TIMEOUT')), 10000)
+      );
+
+      const result = await Promise.race([
+        model.generateContent(prompt),
+        timeoutPromise
+      ]) as any;
+
       const response = result.response.text();
       setWhisperResult(response);
-    } catch (error) {
-      console.error(error);
+    } catch (error: any) {
+      console.error('Whisper translation error:', error);
+      
+      // 오류 처리
+      let errorMessage = "Translation failed. Try again.";
+      
+      if (error.message === 'API_KEY_MISSING') {
+        errorMessage = "API key is missing.";
+      } else if (error.message === 'TIMEOUT') {
+        errorMessage = "Translation timed out.";
+      } else if (error.message?.includes('network')) {
+        errorMessage = "Network error.";
+      }
+      
+      setWhisperResult(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -151,7 +264,29 @@ export default function Home() {
             </div>
           </div>
         ))}
-        {loading && <div className="text-center text-gray-500 animate-pulse">Sloane is thinking...</div>}
+        
+        {/* 현재 녹음 중인 텍스트 표시 */}
+        {currentTranscript && isRecording && !isWhisperOpen && (
+          <div className="flex justify-end">
+            <div className="max-w-[80%] p-4 rounded-2xl bg-gray-800/30 text-right border border-gray-600/50">
+              <p className="text-gray-400 text-xs mb-1">Recording...</p>
+              <p className="text-white/70 text-sm italic">{currentTranscript}</p>
+            </div>
+          </div>
+        )}
+
+        {/* "Sloane is thinking..." 인디케이터 개선 */}
+        {loading && (
+          <div className="flex justify-start">
+            <div className="bg-white/10 backdrop-blur-md border border-[#ff5722]/30 p-4 rounded-2xl shadow-[0_0_15px_rgba(255,87,34,0.2)]">
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 bg-[#ff5722] rounded-full animate-pulse" />
+                <span className="text-[#ff5722] text-xs font-bold">SLOANE</span>
+                <span className="text-gray-400 text-sm ml-2 animate-pulse">is thinking...</span>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* 하단 마이크 버튼 */}
