@@ -1,0 +1,39 @@
+[
+  {
+    "level": 1,
+    "title": "Ice-Breaking",
+    "situation": "엘리베이터 안. 어색한 공기를 깨야 한다.",
+    "situation_en": "Inside an elevator. Need to break the awkward silence.",
+    "goal": "날씨 얘기 말고 '흥미로운 주제' 던지기",
+    "goal_en": "Throw out an 'interesting topic' instead of talking about the weather",
+    "sloane_line": "Silence makes me nervous. Say something interesting."
+  },
+  {
+    "level": 2,
+    "title": "Storytelling",
+    "situation": "라운지 바. 내 출신 성분(Underdog) 어필하기.",
+    "situation_en": "Lounge bar. Need to appeal to your underdog background.",
+    "goal": "서울상경, 달동네, 여자혼자 남자 사업가들 키우기 -> 이 키워드를 '야망'으로 포장하기",
+    "goal_en": "Seoul, poor neighborhood, woman raising male entrepreneurs -> Package these keywords as 'ambition'",
+    "sloane_line": "Everyone loves a struggle story. But don't sound pathetic. Make it sound like a legend."
+  },
+  {
+    "level": 3,
+    "title": "The Pitch",
+    "situation": "투자자 미팅. BM(수익 모델) 설명.",
+    "situation_en": "Investor meeting. Explain your business model (revenue model).",
+    "goal": "구체적인 숫자와 확신에 찬 단어 쓰기",
+    "goal_en": "Use specific numbers and confident words",
+    "sloane_line": "I don't care about your dreams. I care about your margins. How do we make money?"
+  },
+  {
+    "level": 4,
+    "title": "Insider Talk",
+    "situation": "담배 타임 / 회식 자리. 은밀한 업계 뒷담화.",
+    "situation_en": "Smoking break / dinner party. Secretive industry gossip.",
+    "goal": "투자자, 경쟁사 동향을 '고급지게' 까내리기 (Burn rate, Ghosted 등 사용)",
+    "goal_en": "Critique investors and competitors' moves 'sophisticatedly' (use terms like Burn rate, Ghosted)",
+    "sloane_line": "Now we are talking. Tell me what you really think about that VC firm. Keep it off the record."
+  }
+]
+
