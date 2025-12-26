@@ -27,10 +27,35 @@ export async function POST(request: NextRequest) {
     }
 
     const genAI = new GoogleGenerativeAI(apiKey)
-    // 모델 이름 없이 기본 모델 사용 (가장 호환성이 높음)
-    const model = genAI.getGenerativeModel({ 
-      // model을 지정하지 않으면 기본 모델 사용
-    })
+    
+    // 사용 가능한 모델 시도 (순서대로)
+    // 일반적으로 작동하는 모델들
+    const modelNames = [
+      'gemini-1.5-flash',
+      'gemini-1.5-pro', 
+      'gemini-pro',
+      'models/gemini-1.5-flash',
+      'models/gemini-1.5-pro'
+    ]
+    
+    let model
+    let lastError
+    
+    for (const modelName of modelNames) {
+      try {
+        model = genAI.getGenerativeModel({ model: modelName })
+        // 모델이 생성되었으면 사용
+        break
+      } catch (e: any) {
+        lastError = e
+        continue
+      }
+    }
+    
+    // 모든 모델이 실패하면 에러
+    if (!model) {
+      throw new Error(`No available model found. Last error: ${lastError?.message || 'Unknown'}`)
+    }
 
     // Get level-specific prompt
     const currentLevel = level || 1
