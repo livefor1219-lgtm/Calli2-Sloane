@@ -8,10 +8,14 @@ export async function POST(request: NextRequest) {
     const { message, isWhisper, level } = await request.json()
 
     // 서버 사이드에서만 안전하게 키를 관리합니다.
-    const apiKey = process.env.GEMINI_API_KEY || process.env.NEXT_PUBLIC_GEMINI_API_KEY || "AIzaSyAV85Fv56MDnAgFZMhg2Bzcf3u2t7lo53s"
+    // ⚠️ 하드코딩된 API 키 제거 - 환경 변수만 사용
+    const apiKey = process.env.GEMINI_API_KEY || process.env.NEXT_PUBLIC_GEMINI_API_KEY
     
-    if (!apiKey || apiKey === "your_actual_api_key_here") {
-      return NextResponse.json({ error: 'API 키가 설정되지 않았습니다.' }, { status: 500 })
+    if (!apiKey) {
+      return NextResponse.json({ 
+        error: 'API 키가 설정되지 않았습니다.', 
+        details: '.env.local 파일에 GEMINI_API_KEY 또는 NEXT_PUBLIC_GEMINI_API_KEY를 설정해주세요.'
+      }, { status: 500 })
     }
 
     // REST API를 직접 호출 (CORS 문제 완전 해결)
