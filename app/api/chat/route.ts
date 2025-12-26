@@ -1,4 +1,3 @@
-import { GoogleGenerativeAI } from '@google/generative-ai'
 import { NextRequest, NextResponse } from 'next/server'
 
 const BASE_SYSTEM_PROMPT = `You are Sloane, a brutal Silicon Valley Venture Partner. You are cold, fast, and cynical. You hate small talk. You critique the user's pitch. Keep answers short (max 2 sentences).
@@ -15,29 +14,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'API 키가 설정되지 않았습니다.' }, { status: 500 })
     }
 
-    const genAI = new GoogleGenerativeAI(apiKey)
+    // REST API를 직접 호출 (CORS 문제 완전 해결)
+    // 실제로 사용 가능한 모델: gemini-2.5-flash (가장 빠름) 또는 gemini-2.5-pro
+    const modelName = 'gemini-2.5-flash' // 빠르고 무료 할당량이 많음
+    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`
     
-    // 최신 모델 이름 사용 (v1 API에서 지원)
-    // gemini-1.5-pro-latest 또는 gemini-1.5-flash-latest 사용
-    let model
-    try {
-      // 먼저 최신 모델 시도
-      model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash-latest' })
-    } catch (e1: any) {
-      try {
-        // 대안 1: gemini-1.5-pro-latest
-        model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro-latest' })
-      } catch (e2: any) {
-        try {
-          // 대안 2: gemini-1.5-flash (접미사 없이)
-          model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
-        } catch (e3: any) {
-          // 마지막 대안: gemini-1.5-pro
-          model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro' })
-        }
-      }
-    }
-
     let prompt = ''
     if (isWhisper) {
       prompt = `Translate this Korean startup founder's thought into Sophisticated Silicon Valley Business English. 
@@ -50,17 +31,38 @@ export async function POST(request: NextRequest) {
       Sloane:`
     }
 
-    // AI 응답 생성
-    const result = await model.generateContent(prompt)
-    const response = await result.response
-    const text = response.text()
+    // REST API 직접 호출
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        contents: [{
+          parts: [{
+            text: prompt
+          }]
+        }]
+      })
+    })
 
-    if (!text) throw new Error('AI가 빈 응답을 반환했습니다.')
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}))
+      throw new Error(errorData.error?.message || `HTTP ${response.status}: ${response.statusText}`)
+    }
+
+    const data = await response.json()
+    
+    // 응답 파싱
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text
+    
+    if (!text) {
+      throw new Error('AI가 빈 응답을 반환했습니다.')
+    }
 
     return NextResponse.json({ response: text.trim() })
   } catch (error: any) {
     console.error('SERVER_API_ERROR:', error)
-    // 클라이언트에 실제 에러 원인을 전달 (디버깅용)
     return NextResponse.json(
       { 
         error: 'AI 응답 생성 실패', 
