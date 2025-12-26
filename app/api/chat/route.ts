@@ -27,7 +27,8 @@ export async function POST(request: NextRequest) {
     }
 
     const genAI = new GoogleGenerativeAI(apiKey)
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
+    // 사용 가능한 모델: gemini-pro, gemini-1.5-pro, gemini-1.5-flash-latest
+    const model = genAI.getGenerativeModel({ model: 'gemini-pro' })
 
     // Get level-specific prompt
     const currentLevel = level || 1
