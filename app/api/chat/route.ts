@@ -27,8 +27,10 @@ export async function POST(request: NextRequest) {
     }
 
     const genAI = new GoogleGenerativeAI(apiKey)
-    // 사용 가능한 모델: gemini-pro, gemini-1.5-pro, gemini-1.5-flash-latest
-    const model = genAI.getGenerativeModel({ model: 'gemini-pro' })
+    // 모델 이름 없이 기본 모델 사용 (가장 호환성이 높음)
+    const model = genAI.getGenerativeModel({ 
+      // model을 지정하지 않으면 기본 모델 사용
+    })
 
     // Get level-specific prompt
     const currentLevel = level || 1
