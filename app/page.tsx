@@ -4,25 +4,35 @@ import { useState, useRef, useEffect } from 'react'
 import { Mic, MicOff } from 'lucide-react'
 import WhisperModal from '@/components/WhisperModal'
 
+interface ChatMessage {
+  id: string
+  type: 'user' | 'sloane'
+  text: string
+  timestamp: Date
+}
+
 export default function Home() {
   const [isRecording, setIsRecording] = useState(false)
   const [transcript, setTranscript] = useState('')
-  const [sloaneResponse, setSloaneResponse] = useState('')
+  const [chatHistory, setChatHistory] = useState<ChatMessage[]>([])
   const [isWhisperOpen, setIsWhisperOpen] = useState(false)
   const [isTimeFrozen, setIsTimeFrozen] = useState(false)
   const [currentLevel, setCurrentLevel] = useState(1)
   const recognitionRef = useRef<SpeechRecognition | null>(null)
 
   useEffect(() => {
-    // Initialize Web Speech API
+    // Initialize Web Speech API for English (main mic)
     if (typeof window !== 'undefined' && 'webkitSpeechRecognition' in window) {
       const SpeechRecognition = (window as any).webkitSpeechRecognition
       const recognition = new SpeechRecognition()
       recognition.continuous = true
       recognition.interimResults = true
-      recognition.lang = 'en-US'
+      recognition.lang = 'en-US' // Main mic always uses English
 
       recognition.onresult = (event: SpeechRecognitionEvent) => {
+        // Only process if whisper modal is NOT open
+        if (isWhisperOpen) return
+
         let interimTranscript = ''
         let finalTranscript = ''
 
@@ -44,14 +54,14 @@ export default function Home() {
 
       recognitionRef.current = recognition
     }
-  }, [])
+  }, [isWhisperOpen])
 
   const startRecording = () => {
-    if (recognitionRef.current) {
+    if (recognitionRef.current && !isWhisperOpen) {
+      recognitionRef.current.lang = 'en-US' // Ensure English
       recognitionRef.current.start()
       setIsRecording(true)
       setTranscript('')
-      setSloaneResponse('')
     }
   }
 
@@ -61,9 +71,18 @@ export default function Home() {
       setIsRecording(false)
     }
 
-    // Send transcript to Sloane
+    // Send transcript to Sloane and add to chat history
     if (transcript.trim()) {
-      await sendToSloane(transcript)
+      const userMessage: ChatMessage = {
+        id: Date.now().toString(),
+        type: 'user',
+        text: transcript.trim(),
+        timestamp: new Date(),
+      }
+      setChatHistory((prev) => [...prev, userMessage])
+
+      await sendToSloane(transcript.trim())
+      setTranscript('') // Clear after sending
     }
   }
 
@@ -77,11 +96,23 @@ export default function Home() {
 
       const data = await response.json()
       if (data.response) {
-        setSloaneResponse(data.response)
+        const sloaneMessage: ChatMessage = {
+          id: (Date.now() + 1).toString(),
+          type: 'sloane',
+          text: data.response,
+          timestamp: new Date(),
+        }
+        setChatHistory((prev) => [...prev, sloaneMessage])
       }
     } catch (error) {
       console.error('Error sending to Sloane:', error)
-      setSloaneResponse("I'm having technical difficulties. Try again.")
+      const errorMessage: ChatMessage = {
+        id: (Date.now() + 1).toString(),
+        type: 'sloane',
+        text: "I'm having technical difficulties. Try again.",
+        timestamp: new Date(),
+      }
+      setChatHistory((prev) => [...prev, errorMessage])
     }
   }
 
@@ -102,6 +133,11 @@ export default function Home() {
   }
 
   const handleWhisperOpen = () => {
+    // Stop English recording if active
+    if (recognitionRef.current && isRecording) {
+      recognitionRef.current.stop()
+      setIsRecording(false)
+    }
     setIsTimeFrozen(true)
     setIsWhisperOpen(true)
   }
@@ -147,11 +183,12 @@ export default function Home() {
           <div className="flex justify-center">
             <button
               onClick={isRecording ? stopRecording : startRecording}
+              disabled={isWhisperOpen}
               className={`relative w-32 h-32 rounded-full ${
                 isRecording
                   ? 'bg-neon-orange animate-pulse-slow'
                   : 'bg-neon-orange/80 hover:bg-neon-orange'
-              } transition-all duration-300 shadow-2xl shadow-neon-orange/50 flex items-center justify-center group`}
+              } transition-all duration-300 shadow-2xl shadow-neon-orange/50 flex items-center justify-center group disabled:opacity-50 disabled:cursor-not-allowed`}
             >
               {isRecording ? (
                 <MicOff size={48} className="text-white" />
@@ -162,38 +199,61 @@ export default function Home() {
             </button>
           </div>
 
-          {/* Transcript */}
-          {transcript && (
-            <div className="glass p-6">
-              <p className="text-white/80 text-lg leading-relaxed">{transcript}</p>
-            </div>
-          )}
-
-          {/* Sloane's Response */}
-          {sloaneResponse && (
-            <div className="glass-strong p-6 border-neon-orange/30">
-              <div className="flex items-center gap-3 mb-3">
-                <div className="w-2 h-2 bg-neon-orange rounded-full animate-pulse" />
-                <span className="text-neon-orange font-bold text-sm">SLOANE</span>
+          {/* Current Transcript (while recording) */}
+          {transcript && isRecording && (
+            <div className="flex justify-end">
+              <div className="bg-white/10 px-4 py-2 rounded-lg max-w-md">
+                <p className="text-white/60 text-sm">Recording...</p>
+                <p className="text-white/80 text-lg leading-relaxed">{transcript}</p>
               </div>
-              <p className="text-white text-lg leading-relaxed">{sloaneResponse}</p>
             </div>
           )}
 
-          {/* Empty State */}
-          {!transcript && !sloaneResponse && (
-            <div className="glass p-12 text-center">
-              <p className="text-white/40 text-lg">
-                Click the microphone to start your pitch
-              </p>
-            </div>
-          )}
+          {/* Chat History */}
+          <div className="space-y-4 min-h-[400px]">
+            {chatHistory.length === 0 && !transcript && (
+              <div className="glass p-12 text-center">
+                <p className="text-white/40 text-lg">
+                  Click the microphone to start your pitch
+                </p>
+              </div>
+            )}
+
+            {chatHistory.map((message) => (
+              <div
+                key={message.id}
+                className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}
+              >
+                {message.type === 'user' ? (
+                  // User Message - Right Aligned, Grey
+                  <div className="max-w-md">
+                    <p className="text-white/60 text-sm mb-1 text-right">You</p>
+                    <div className="bg-white/5 px-4 py-3 rounded-lg">
+                      <p className="text-white/80 text-base leading-relaxed">{message.text}</p>
+                    </div>
+                  </div>
+                ) : (
+                  // Sloane Message - Left Aligned, Glassmorphism with Neon Orange Border
+                  <div className="max-w-md">
+                    <div className="flex items-center gap-2 mb-1">
+                      <div className="w-2 h-2 bg-neon-orange rounded-full animate-pulse" />
+                      <span className="text-neon-orange font-bold text-sm">SLOANE</span>
+                    </div>
+                    <div className="glass-strong p-4 border-2 border-neon-orange/50 shadow-lg shadow-neon-orange/20">
+                      <p className="text-white text-base leading-relaxed">{message.text}</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
 
         {/* Whisper Button */}
         <button
           onClick={handleWhisperOpen}
-          className="fixed bottom-8 right-8 glass px-6 py-3 rounded-full flex items-center gap-2 hover:bg-white/20 transition-all group"
+          disabled={isRecording}
+          className="fixed bottom-8 right-8 glass px-6 py-3 rounded-full flex items-center gap-2 hover:bg-white/20 transition-all group disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <span className="text-2xl">🤫</span>
           <span className="text-white font-semibold">Whisper</span>
@@ -205,8 +265,8 @@ export default function Home() {
         isOpen={isWhisperOpen}
         onClose={handleWhisperClose}
         onTranslate={handleWhisperTranslate}
+        recognitionRef={recognitionRef}
       />
     </div>
   )
 }
-
