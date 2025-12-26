@@ -65,8 +65,12 @@ export default function Home() {
   const startRecording = (forWhisper = false) => {
     if (!recognitionRef.current) return alert("크롬 브라우저를 사용해주세요.");
     recognitionRef.current.lang = forWhisper ? 'ko-KR' : 'en-US';
-    recognitionRef.current.start();
-    setIsRecording(true);
+    try {
+      recognitionRef.current.start();
+      setIsRecording(true);
+    } catch (e) {
+      console.error("녹음 시작 실패:", e);
+    }
   };
 
   const stopRecording = () => {
@@ -79,35 +83,46 @@ export default function Home() {
     if (silenceTimer.current) clearTimeout(silenceTimer.current);
   };
 
-  // 서버 API를 통한 메시지 전송 (안전한 연결)
+  // 메시지 전송 로직 개선
   const handleSendMessage = async (text: string) => {
+    if (!text.trim()) return;
+    
     setMessages(prev => [...prev, { role: 'user', text }]);
     setLoading(true);
 
     try {
+      // '/api/chat' 경로로 POST 요청
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text, level })
+        body: JSON.stringify({ message: text, level }),
+        // 타임아웃 방지를 위해 신호 설정 (옵션)
       });
 
       const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.details || data.error || '서버 응답 오류');
+      }
+
       if (data.response) {
         setMessages(prev => [...prev, { role: 'assistant', text: data.response }]);
         speak(data.response);
-      } else {
-        throw new Error(data.details || 'Unknown error');
       }
     } catch (error: any) {
-      console.error(error);
-      setMessages(prev => [...prev, { role: 'assistant', text: "연결 에러가 발생했습니다. 다시 시도해주세요." }]);
+      console.error("CLIENT_FETCH_ERROR:", error);
+      const errorMsg = error.message.includes('Failed to fetch') 
+        ? "네트워크가 불안정합니다. 서버 연결을 확인하세요."
+        : `오류: ${error.message}`;
+      
+      setMessages(prev => [...prev, { role: 'assistant', text: errorMsg }]);
     } finally {
       setLoading(false);
     }
   };
 
-  // 서버 API를 통한 번역 요청
   const handleWhisperSubmit = async (koreanText: string) => {
+    if (!koreanText.trim()) return;
     setLoading(true);
     try {
       const response = await fetch('/api/chat', {
@@ -119,9 +134,12 @@ export default function Home() {
       const data = await response.json();
       if (data.response) {
         setWhisperResult(data.response);
+      } else {
+        throw new Error(data.error || '번역 실패');
       }
-    } catch (error) {
-      console.error(error);
+    } catch (error: any) {
+      console.error("WHISPER_ERROR:", error);
+      setWhisperResult("번역 중 오류가 발생했습니다.");
     } finally {
       setLoading(false);
     }
@@ -170,7 +188,7 @@ export default function Home() {
         <button 
           onClick={() => isRecording ? stopRecording() : startRecording(false)}
           className={`w-20 h-20 rounded-full flex items-center justify-center transition-all shadow-[0_0_30px_#ff5722] border-2 border-orange-500/60 active:scale-95 ${
-            isRecording ? 'bg-red-600 scale-110' : 'bg-[#ff5722] hover:scale-105'
+            isRecording ? 'bg-red-600 scale-110 animate-pulse' : 'bg-[#ff5722] hover:scale-105'
           }`}
         >
           {isRecording ? <MicOff className="w-8 h-8" /> : <Mic className="w-8 h-8" />}
