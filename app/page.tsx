@@ -7,7 +7,18 @@ import Toast from '@/components/Toast';
 
 // --- 설정 ---
 // .env.local에 NEXT_PUBLIC_GEMINI_API_KEY가 있어야 합니다.
-const GEN_AI = new GoogleGenerativeAI(process.env.NEXT_PUBLIC_GEMINI_API_KEY || "");
+// 런타임에 환경 변수 가져오기
+const getApiKey = () => {
+  if (typeof window !== 'undefined') {
+    // 클라이언트 사이드에서는 window 객체를 통해 접근
+    return (window as any).__NEXT_PUBLIC_GEMINI_API_KEY__ || process.env.NEXT_PUBLIC_GEMINI_API_KEY || "";
+  }
+  return process.env.NEXT_PUBLIC_GEMINI_API_KEY || "";
+};
+
+// API 키를 직접 설정 (개발용)
+const API_KEY = "AIzaSyAV85Fv56MDnAgFZMhg2Bzcf3u2t7lo53s";
+const GEN_AI = new GoogleGenerativeAI(API_KEY);
 
 interface ToastState {
   message: string;
@@ -205,7 +216,8 @@ export default function Home() {
 
     try {
       // API 키 확인
-      if (!process.env.NEXT_PUBLIC_GEMINI_API_KEY) {
+      const apiKey = API_KEY || getApiKey();
+      if (!apiKey) {
         throw new Error('API_KEY_MISSING');
       }
 
@@ -276,7 +288,8 @@ export default function Home() {
     setLoading(true);
     try {
       // API 키 확인
-      if (!process.env.NEXT_PUBLIC_GEMINI_API_KEY) {
+      const apiKey = API_KEY || getApiKey();
+      if (!apiKey) {
         throw new Error('API_KEY_MISSING');
       }
 
