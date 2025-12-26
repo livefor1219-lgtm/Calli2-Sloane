@@ -135,18 +135,18 @@ export default function WhisperModal({ isOpen, onClose, onTranslate, recognition
         </div>
 
         <div className="space-y-4">
-          {/* Korean Speech Transcript Display */}
+          {/* Korean Speech Transcript Display - Pure White, Large, Centered */}
           <div className="space-y-2">
             <label className="text-white/80 text-sm font-medium">
               한국어 음성 인식 (실시간)
             </label>
-            <div className="bg-white/10 border border-white/20 rounded-lg p-4 min-h-[200px]">
+            <div className="bg-white/10 border border-white/20 rounded-lg p-8 min-h-[200px] flex items-center justify-center">
               {koreanTranscript ? (
-                <p className="text-white text-lg leading-relaxed whitespace-pre-wrap">
+                <p className="text-white text-2xl leading-relaxed whitespace-pre-wrap text-center">
                   {koreanTranscript}
                 </p>
               ) : (
-                <p className="text-white/40 text-base">
+                <p className="text-white/40 text-base text-center">
                   {isRecordingKorean 
                     ? '말씀해주세요...' 
                     : '한국어로 말하고 싶은 것을 녹음하거나 직접 입력하세요'}
@@ -177,11 +177,11 @@ export default function WhisperModal({ isOpen, onClose, onTranslate, recognition
             </button>
           </div>
 
-          {/* English Translation Hint */}
+          {/* English Translation Hint - Also Pure White and Large */}
           {englishHint && (
-            <div className="p-4 bg-neon-orange/20 border-2 border-neon-orange/50 rounded-lg">
-              <p className="text-sm text-neon-orange/80 mb-2 font-semibold">영어로 이렇게 말하세요:</p>
-              <p className="text-white text-lg font-medium leading-relaxed">{englishHint}</p>
+            <div className="p-6 bg-neon-orange/20 border-2 border-neon-orange/50 rounded-lg">
+              <p className="text-sm text-neon-orange/80 mb-3 font-semibold text-center">영어로 이렇게 말하세요:</p>
+              <p className="text-white text-2xl font-medium leading-relaxed text-center">{englishHint}</p>
             </div>
           )}
         </div>

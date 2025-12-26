@@ -4,30 +4,73 @@ import { useState, useRef, useEffect } from 'react'
 import { Mic, MicOff } from 'lucide-react'
 import WhisperModal from '@/components/WhisperModal'
 
-interface ChatMessage {
-  id: string
-  type: 'user' | 'sloane'
+interface Message {
+  role: 'user' | 'assistant'
   text: string
-  timestamp: Date
 }
 
 export default function Home() {
+  const [messages, setMessages] = useState<Message[]>([])
   const [isRecording, setIsRecording] = useState(false)
   const [transcript, setTranscript] = useState('')
-  const [chatHistory, setChatHistory] = useState<ChatMessage[]>([])
   const [isWhisperOpen, setIsWhisperOpen] = useState(false)
   const [isTimeFrozen, setIsTimeFrozen] = useState(false)
   const [currentLevel, setCurrentLevel] = useState(1)
+  const [isThinking, setIsThinking] = useState(false)
   const recognitionRef = useRef<SpeechRecognition | null>(null)
 
+  // Text-to-Speech function
+  const speak = (text: string) => {
+    if (typeof window === 'undefined' || !window.speechSynthesis) return
+
+    // Cancel any ongoing speech
+    window.speechSynthesis.cancel()
+
+    const utterance = new SpeechSynthesisUtterance(text)
+    utterance.rate = 0.9
+    utterance.pitch = 1.1
+    utterance.volume = 1
+
+    // Try to find a female English voice
+    const voices = window.speechSynthesis.getVoices()
+    const femaleVoice = voices.find(
+      (voice) =>
+        (voice.name.includes('Google US English') ||
+          voice.name.includes('Samantha') ||
+          voice.name.includes('Karen') ||
+          voice.name.includes('Victoria') ||
+          voice.name.includes('Female')) &&
+        voice.lang.startsWith('en')
+    )
+
+    if (femaleVoice) {
+      utterance.voice = femaleVoice
+    }
+
+    window.speechSynthesis.speak(utterance)
+  }
+
+  // Load voices when available
   useEffect(() => {
-    // Initialize Web Speech API for English (main mic)
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+      const loadVoices = () => {
+        window.speechSynthesis.getVoices()
+      }
+      loadVoices()
+      if (window.speechSynthesis.onvoiceschanged !== undefined) {
+        window.speechSynthesis.onvoiceschanged = loadVoices
+      }
+    }
+  }, [])
+
+  // Initialize Web Speech API for English (main mic)
+  useEffect(() => {
     if (typeof window !== 'undefined' && 'webkitSpeechRecognition' in window) {
       const SpeechRecognition = (window as any).webkitSpeechRecognition
       const recognition = new SpeechRecognition()
       recognition.continuous = true
       recognition.interimResults = true
-      recognition.lang = 'en-US' // Main mic always uses English
+      recognition.lang = 'en-US'
 
       recognition.onresult = (event: SpeechRecognitionEvent) => {
         // Only process if whisper modal is NOT open
@@ -48,17 +91,25 @@ export default function Home() {
         setTranscript(finalTranscript || interimTranscript)
       }
 
+      recognition.onend = () => {
+        // Auto-send when recognition ends (silence detected)
+        if (transcript.trim() && !isWhisperOpen) {
+          handleAutoSend()
+        }
+      }
+
       recognition.onerror = (event: any) => {
         console.error('Speech recognition error:', event.error)
+        setIsRecording(false)
       }
 
       recognitionRef.current = recognition
     }
-  }, [isWhisperOpen])
+  }, [isWhisperOpen, transcript])
 
   const startRecording = () => {
     if (recognitionRef.current && !isWhisperOpen) {
-      recognitionRef.current.lang = 'en-US' // Ensure English
+      recognitionRef.current.lang = 'en-US'
       recognitionRef.current.start()
       setIsRecording(true)
       setTranscript('')
@@ -71,48 +122,43 @@ export default function Home() {
       setIsRecording(false)
     }
 
-    // Send transcript to Sloane and add to chat history
+    // Auto-send transcript
     if (transcript.trim()) {
-      const userMessage: ChatMessage = {
-        id: Date.now().toString(),
-        type: 'user',
-        text: transcript.trim(),
-        timestamp: new Date(),
-      }
-      setChatHistory((prev) => [...prev, userMessage])
-
-      await sendToSloane(transcript.trim())
-      setTranscript('') // Clear after sending
+      await handleAutoSend()
     }
   }
 
-  const sendToSloane = async (message: string) => {
+  const handleAutoSend = async () => {
+    const userText = transcript.trim()
+    if (!userText) return
+
+    // Add user message to history
+    setMessages((prev) => [...prev, { role: 'user', text: userText }])
+    setTranscript('')
+    setIsThinking(true)
+
     try {
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message, isWhisper: false }),
+        body: JSON.stringify({ message: userText, level: currentLevel }),
       })
 
       const data = await response.json()
       if (data.response) {
-        const sloaneMessage: ChatMessage = {
-          id: (Date.now() + 1).toString(),
-          type: 'sloane',
-          text: data.response,
-          timestamp: new Date(),
-        }
-        setChatHistory((prev) => [...prev, sloaneMessage])
+        // Add assistant message to history
+        setMessages((prev) => [...prev, { role: 'assistant', text: data.response }])
+        
+        // Speak the response
+        speak(data.response)
       }
     } catch (error) {
       console.error('Error sending to Sloane:', error)
-      const errorMessage: ChatMessage = {
-        id: (Date.now() + 1).toString(),
-        type: 'sloane',
-        text: "I'm having technical difficulties. Try again.",
-        timestamp: new Date(),
-      }
-      setChatHistory((prev) => [...prev, errorMessage])
+      const errorMessage = "I'm having technical difficulties. Try again."
+      setMessages((prev) => [...prev, { role: 'assistant', text: errorMessage }])
+      speak(errorMessage)
+    } finally {
+      setIsThinking(false)
     }
   }
 
@@ -121,7 +167,7 @@ export default function Home() {
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: korean, isWhisper: true }),
+        body: JSON.stringify({ message: korean, isWhisper: true, level: currentLevel }),
       })
 
       const data = await response.json()
@@ -144,7 +190,6 @@ export default function Home() {
 
   const handleWhisperClose = () => {
     setIsWhisperOpen(false)
-    // Small delay for smooth transition
     setTimeout(() => setIsTimeFrozen(false), 300)
   }
 
@@ -209,9 +254,22 @@ export default function Home() {
             </div>
           )}
 
+          {/* Thinking Indicator */}
+          {isThinking && (
+            <div className="flex justify-start">
+              <div className="glass-strong p-4 border-2 border-neon-orange/50">
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 bg-neon-orange rounded-full animate-pulse" />
+                  <span className="text-neon-orange font-bold text-sm">SLOANE</span>
+                  <span className="text-white/60 text-sm ml-2">is thinking...</span>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Chat History */}
           <div className="space-y-4 min-h-[400px]">
-            {chatHistory.length === 0 && !transcript && (
+            {messages.length === 0 && !transcript && !isThinking && (
               <div className="glass p-12 text-center">
                 <p className="text-white/40 text-lg">
                   Click the microphone to start your pitch
@@ -219,12 +277,12 @@ export default function Home() {
               </div>
             )}
 
-            {chatHistory.map((message) => (
+            {messages.map((message, index) => (
               <div
-                key={message.id}
-                className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}
+                key={index}
+                className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
               >
-                {message.type === 'user' ? (
+                {message.role === 'user' ? (
                   // User Message - Right Aligned, Grey
                   <div className="max-w-md">
                     <p className="text-white/60 text-sm mb-1 text-right">You</p>
