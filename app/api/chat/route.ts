@@ -16,8 +16,8 @@ export async function POST(request: NextRequest) {
     }
 
     const genAI = new GoogleGenerativeAI(apiKey)
-    // 모델 호출 (가장 범용적인 gemini-1.5-flash 사용)
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
+    // 가장 안정적인 모델 사용 (gemini-pro는 모든 API 버전에서 지원됨)
+    const model = genAI.getGenerativeModel({ model: 'gemini-pro' })
 
     let prompt = ''
     if (isWhisper) {
