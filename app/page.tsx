@@ -205,7 +205,7 @@ export default function Home() {
     }
   };
 
-  // 메시지 전송 (Gemini)
+  // 메시지 전송 (Gemini) - 서버 사이드 API route 사용
   const handleSendMessage = async (text: string, retryCount = 0) => {
     if (!text.trim()) return;
 
@@ -215,37 +215,37 @@ export default function Home() {
     setLastError(null);
 
     try {
-      // API 키 확인
-      const apiKey = API_KEY || getApiKey();
-      if (!apiKey) {
-        throw new Error('API_KEY_MISSING');
+      // 서버 사이드 API route 사용 (CORS 문제 해결)
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          message: text.trim(),
+          level: level,
+          isWhisper: false,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
       }
 
-      const model = GEN_AI.getGenerativeModel({ model: "gemini-1.5-flash" });
-      const prompt = `
-        System: You are Sloane, a brutal Silicon Valley Venture Partner. 
-        Current Level: ${level}/4.
-        User said: "${text}"
-        Task: Reply in 1-2 sentences. Be critical, cynical, and fast. NO small talk.
-      `;
+      const data = await response.json();
       
-      // 타임아웃 설정 (10초)
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('TIMEOUT')), 10000)
-      );
+      if (!data.response) {
+        throw new Error('No response from API');
+      }
 
-      const result = await Promise.race([
-        model.generateContent(prompt),
-        timeoutPromise
-      ]) as any;
-
-      const response = result.response.text();
+      const responseText = data.response;
 
       // 2. 슬론 메시지 추가
-      setMessages(prev => [...prev, { role: 'assistant', text: response }]);
+      setMessages(prev => [...prev, { role: 'assistant', text: responseText }]);
       
       // 3. 말하기
-      speak(response);
+      speak(responseText);
 
     } catch (error: any) {
       console.error('Error sending message:', error);
@@ -259,8 +259,10 @@ export default function Home() {
         errorMessage = "Request timed out. The network might be slow.";
       } else if (error.message?.includes('API key')) {
         errorMessage = "Invalid API key. Check your configuration.";
-      } else if (error.message?.includes('network') || error.message?.includes('fetch')) {
+      } else if (error.message?.includes('network') || error.message?.includes('fetch') || error.message?.includes('Failed to fetch')) {
         errorMessage = "Network error. Check your internet connection.";
+      } else if (error.message?.includes('HTTP error')) {
+        errorMessage = "Server error. Please try again.";
       }
 
       const retryFn = () => {
@@ -281,37 +283,37 @@ export default function Home() {
     }
   };
 
-  // 속삭임 처리 (Gemini)
+  // 속삭임 처리 (Gemini) - 서버 사이드 API route 사용
   const handleWhisperSubmit = async (koreanText: string, retryCount = 0) => {
     if (!koreanText.trim()) return;
 
     setLoading(true);
     try {
-      // API 키 확인
-      const apiKey = API_KEY || getApiKey();
-      if (!apiKey) {
-        throw new Error('API_KEY_MISSING');
+      // 서버 사이드 API route 사용
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          message: koreanText.trim(),
+          level: level,
+          isWhisper: true,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
       }
 
-      const model = GEN_AI.getGenerativeModel({ model: "gemini-1.5-flash" });
-      const prompt = `
-        System: Translate this Korean complaint/thought into Sophisticated Silicon Valley Business English.
-        Input: "${koreanText}"
-        Output: Just the English phrase. Nothing else.
-      `;
+      const data = await response.json();
       
-      // 타임아웃 설정
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('TIMEOUT')), 10000)
-      );
+      if (!data.response) {
+        throw new Error('No response from API');
+      }
 
-      const result = await Promise.race([
-        model.generateContent(prompt),
-        timeoutPromise
-      ]) as any;
-
-      const response = result.response.text();
-      setWhisperResult(response);
+      setWhisperResult(data.response);
     } catch (error: any) {
       console.error('Whisper translation error:', error);
       

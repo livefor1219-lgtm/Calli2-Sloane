@@ -17,7 +17,8 @@ export async function POST(request: NextRequest) {
     const { message, isWhisper, level } = await request.json()
 
     // Use server-side env var (without NEXT_PUBLIC_)
-    const apiKey = process.env.GEMINI_API_KEY || process.env.NEXT_PUBLIC_GEMINI_API_KEY
+    // 개발용: 직접 API 키 설정
+    const apiKey = process.env.GEMINI_API_KEY || process.env.NEXT_PUBLIC_GEMINI_API_KEY || "AIzaSyAV85Fv56MDnAgFZMhg2Bzcf3u2t7lo53s"
     if (!apiKey) {
       return NextResponse.json(
         { error: 'Gemini API key not configured' },
@@ -26,7 +27,7 @@ export async function POST(request: NextRequest) {
     }
 
     const genAI = new GoogleGenerativeAI(apiKey)
-    const model = genAI.getGenerativeModel({ model: 'gemini-pro' })
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
 
     // Get level-specific prompt
     const currentLevel = level || 1
