@@ -16,8 +16,27 @@ export async function POST(request: NextRequest) {
     }
 
     const genAI = new GoogleGenerativeAI(apiKey)
-    // 가장 안정적인 모델 사용 (gemini-pro는 모든 API 버전에서 지원됨)
-    const model = genAI.getGenerativeModel({ model: 'gemini-pro' })
+    
+    // 최신 모델 이름 사용 (v1 API에서 지원)
+    // gemini-1.5-pro-latest 또는 gemini-1.5-flash-latest 사용
+    let model
+    try {
+      // 먼저 최신 모델 시도
+      model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash-latest' })
+    } catch (e1: any) {
+      try {
+        // 대안 1: gemini-1.5-pro-latest
+        model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro-latest' })
+      } catch (e2: any) {
+        try {
+          // 대안 2: gemini-1.5-flash (접미사 없이)
+          model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
+        } catch (e3: any) {
+          // 마지막 대안: gemini-1.5-pro
+          model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro' })
+        }
+      }
+    }
 
     let prompt = ''
     if (isWhisper) {
