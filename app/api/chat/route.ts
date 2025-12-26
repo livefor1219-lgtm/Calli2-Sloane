@@ -28,33 +28,24 @@ export async function POST(request: NextRequest) {
 
     const genAI = new GoogleGenerativeAI(apiKey)
     
-    // 사용 가능한 모델 시도 (순서대로)
-    // 일반적으로 작동하는 모델들
-    const modelNames = [
-      'gemini-1.5-flash',
-      'gemini-1.5-pro', 
-      'gemini-pro',
-      'models/gemini-1.5-flash',
-      'models/gemini-1.5-pro'
-    ]
-    
+    // 가장 안정적인 모델 사용 (gemini-pro는 가장 오래되고 안정적)
+    // v1beta API에서도 작동하는 모델
     let model
-    let lastError
-    
-    for (const modelName of modelNames) {
+    try {
+      // 먼저 gemini-pro 시도 (가장 안정적)
+      model = genAI.getGenerativeModel({ model: 'gemini-pro' })
+    } catch (e: any) {
+      // gemini-pro가 실패하면 다른 모델 시도
       try {
-        model = genAI.getGenerativeModel({ model: modelName })
-        // 모델이 생성되었으면 사용
-        break
-      } catch (e: any) {
-        lastError = e
-        continue
+        model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro' })
+      } catch (e2: any) {
+        // 마지막으로 gemini-1.5-flash 시도
+        try {
+          model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
+        } catch (e3: any) {
+          throw new Error(`No available model found. Tried: gemini-pro, gemini-1.5-pro, gemini-1.5-flash. Last error: ${e3?.message || e2?.message || e?.message}`)
+        }
       }
-    }
-    
-    // 모든 모델이 실패하면 에러
-    if (!model) {
-      throw new Error(`No available model found. Last error: ${lastError?.message || 'Unknown'}`)
     }
 
     // Get level-specific prompt
@@ -70,7 +61,27 @@ export async function POST(request: NextRequest) {
       prompt = `${BASE_SYSTEM_PROMPT}\n\n${levelPrompt}\n\nUser: ${message}\n\nSloane:`
     }
 
-    const result = await model.generateContent(prompt)
+    // 실제 API 호출 시도
+    let result
+    try {
+      result = await model.generateContent(prompt)
+    } catch (modelError: any) {
+      // 모델 호출 실패 시 다른 모델로 재시도
+      console.error('Model call failed, trying alternative:', modelError.message)
+      
+      // gemini-pro로 재시도
+      if (model) {
+        try {
+          const altModel = genAI.getGenerativeModel({ model: 'gemini-pro' })
+          result = await altModel.generateContent(prompt)
+        } catch (altError: any) {
+          throw new Error(`All models failed. Last error: ${altError?.message || modelError?.message}`)
+        }
+      } else {
+        throw modelError
+      }
+    }
+    
     const response = await result.response
     const text = response.text()
 
