@@ -11,10 +11,18 @@ export async function POST(request: NextRequest) {
     // ⚠️ 하드코딩된 API 키 제거 - 환경 변수만 사용
     const apiKey = process.env.GEMINI_API_KEY || process.env.NEXT_PUBLIC_GEMINI_API_KEY
     
+    // 디버깅: 환경 변수 확인 (서버 콘솔에만 출력)
+    console.log('🔍 Environment Check:', {
+      hasGEMINI_API_KEY: !!process.env.GEMINI_API_KEY,
+      hasNEXT_PUBLIC_GEMINI_API_KEY: !!process.env.NEXT_PUBLIC_GEMINI_API_KEY,
+      apiKeyLength: apiKey?.length || 0
+    })
+    
     if (!apiKey) {
+      console.error('❌ API Key not found in environment variables')
       return NextResponse.json({ 
         error: 'API 키가 설정되지 않았습니다.', 
-        details: '.env.local 파일에 GEMINI_API_KEY 또는 NEXT_PUBLIC_GEMINI_API_KEY를 설정해주세요.'
+        details: '.env.local 파일에 GEMINI_API_KEY 또는 NEXT_PUBLIC_GEMINI_API_KEY를 설정해주세요. 개발 서버를 재시작했는지 확인하세요.'
       }, { status: 500 })
     }
 
