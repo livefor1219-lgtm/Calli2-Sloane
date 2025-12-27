@@ -60,7 +60,24 @@ export async function POST(request: NextRequest) {
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}))
-      throw new Error(errorData.error?.message || `HTTP ${response.status}: ${response.statusText}`)
+      const errorMessage = errorData.error?.message || `HTTP ${response.status}: ${response.statusText}`
+      
+      // 할당량 초과 에러 특별 처리
+      if (errorMessage.includes('quota') || errorMessage.includes('Quota exceeded')) {
+        // 재시도 시간 추출 (예: "Please retry in 47.739259522s")
+        const retryMatch = errorMessage.match(/retry in ([\d.]+)s/i)
+        const retrySeconds = retryMatch ? Math.ceil(parseFloat(retryMatch[1])) : 60
+        
+        return NextResponse.json({
+          error: 'API 할당량 초과',
+          details: `무료 티어는 시간당 20회 요청 제한이 있습니다.`,
+          retryAfter: retrySeconds,
+          retryMessage: `${retrySeconds}초 후에 다시 시도해주세요.`,
+          suggestion: '잠시 기다렸다가 다시 시도하거나, Google AI Studio에서 할당량을 확인하세요.'
+        }, { status: 429 }) // 429 Too Many Requests
+      }
+      
+      throw new Error(errorMessage)
     }
 
     const data = await response.json()

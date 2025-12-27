@@ -102,6 +102,12 @@ export default function Home() {
       const data = await response.json();
 
       if (!response.ok) {
+        // 할당량 초과 에러 특별 처리
+        if (response.status === 429 && data.retryAfter) {
+          const retryMsg = `⏰ API 할당량 초과\n\n${data.details}\n${data.retryMessage}\n\n💡 ${data.suggestion}`;
+          setMessages(prev => [...prev, { role: 'assistant', text: retryMsg }]);
+          return;
+        }
         throw new Error(data.details || data.error || '서버 응답 오류');
       }
 
@@ -132,6 +138,16 @@ export default function Home() {
       });
 
       const data = await response.json();
+      
+      if (!response.ok) {
+        // 할당량 초과 에러 특별 처리
+        if (response.status === 429 && data.retryAfter) {
+          setWhisperResult(`⏰ 할당량 초과\n${data.retryMessage}`);
+          return;
+        }
+        throw new Error(data.error || '번역 실패');
+      }
+      
       if (data.response) {
         setWhisperResult(data.response);
       } else {
